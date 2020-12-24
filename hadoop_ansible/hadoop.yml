@@ -1,0 +1,178 @@
+- hosts: namenode
+  vars:
+          nndir: "/nn"
+          nnport: 9001
+  tasks: 
+          - name: Making folder for Redhat DVD
+            file:
+                    path: /dvd
+                    state: directory
+                    #mode: 0755
+          - name: Mounting Redhat DVD
+            mount:
+                    src: /dev/cdrom
+                    path: /dvd
+                    fstype: iso9660
+                    state: present
+          - name: Making Repository for Redhat Disk AppStream
+            yum_repository:
+                    name: App1
+                    description: "Redhat DVD App List 1"
+                    baseurl: "file:///dvd/AppStream"
+                    file: redhatdvd
+                    gpgcheck: no
+          - name: Making Repository for Redhat Disk BaseOS
+            yum_repository:
+                    name: App2
+                    description: "Redhat DVD App List 2"
+                    baseurl: "file:///dvd/BaseOS"           
+                    file: redhatdvd
+                    gpgcheck: no
+          - name: Installing wget if not Available
+            package:
+                    name: wget
+                    state: present
+          - name: Installing Java JDK 
+            package:
+                    name: jdk
+                    state: present
+          - name: Downloading Hadoop Software
+            command: "wget -c https://archive.apache.org/dist/hadoop/common/hadoop-1.2.1/hadoop-1.2.1-1.x86_64.rpm"
+          - name: Installing Hadoop Software
+            command: "rpm -i --force hadoop-1.2.1-1.x86_64.rpm "
+          - name: Deleting preexisting folder for NameNode if present
+            file:
+                    path: "{{ nndir }}"
+                    state: absent
+
+          - name: Making folder for NameNode
+            file:
+                    path: "{{ nndir }}"
+                    state: directory
+
+          - name: Copying hdfs-site.xml file from Controller Node
+            copy:
+                    src: files/hdfs-site.xml
+                    dest: /etc/hadoop/
+          - name: Copying core-site.xml file from Controller Node
+            copy:
+                    src: files/core-site.xml
+                    dest: /etc/hadoop/ 
+          - name: Adding dfs.name.dir property
+            shell: |
+                    echo '<configuration>
+                    <property>
+                    <name>dfs.name.dir</name>
+                    <value>{{ nndir }}</value>
+                    </property>
+                    </configuration>' >> /etc/hadoop/hdfs-site.xml
+          - name: Adding fs.default.name property
+            shell: |
+                    echo '<configuration>
+                    <property>
+                    <name>fs.default.name</name>
+                    <value>hdfs://{{ ansible_facts['default_ipv4']['address'] }}:{{ nnport }}</value>
+                    </property>
+                    </configuration>' >> /etc/hadoop/core-site.xml 
+          - name: Checking process running 
+            command: "pidof /usr/java/default/bin/java"
+            register: x
+            failed_when: false
+            ignore_errors: yes
+
+          - name: Checking NameNode process if running already
+            shell: "kill `pidof /usr/java/default/bin/java`"
+            when: x.rc == 0 
+      
+          - name: Formatting the namenode directory
+            shell: "echo 'Y' | hadoop namenode -format"
+
+          - name: Starting Namenode
+            command: "hadoop-daemon.sh start namenode"
+
+- hosts: datanodes
+  vars:
+          dndir: "/dn"
+          nnip: "{{ groups.namenode[0] }}"
+          nnport: 9001
+  tasks:
+          - name: Making folder for Redhat DVD
+            file:
+                    path: /dvd
+                    state: directory
+          - name: Mounting Redhat DVD
+            mount:
+                    src: /dev/cdrom
+                    path: /dvd
+                    fstype: iso9660
+                    state: present
+          - name: Making Repository for Redhat Disk AppStream           
+            yum_repository:
+                    name: App1       
+                    description: "Redhat DVD App List 1"
+                    baseurl: "file:///dvd/AppStream"
+                    file: redhatdvd
+                    gpgcheck: no
+          - name: Making Repository for Redhat Disk BaseOS
+            yum_repository:
+                    name: App2
+                    description: "Redhat DVD App List 2"
+                    baseurl: "file:///dvd/BaseOS"
+                    file: redhatdvd
+                    gpgcheck: no
+          - name: Installing wget if not Available
+            package:
+                    name: wget
+                    state: present
+          - name: Installing Java JDK
+            package:
+                    name: jdk
+                    state: present
+          - name: Downloading Hadoop Software
+            command: "wget -c https://archive.apache.org/dist/hadoop/common/hadoop-1.2.1/hadoop-1.2.1-1.x86_64.rpm"
+          - name: Installing Hadoop Software
+            command: "rpm -i --force hadoop-1.2.1-1.x86_64.rpm "
+          - name: Deleting preexisting folder for DataNode if present
+            file:
+                    path: "{{ dndir }}"
+                    state: absent
+          - name: Making folder for DataNode
+            file:
+                    path: "{{ dndir }}"
+                    state: directory
+          - name: Copying hdfs-site.xml file from Controller Node
+            copy:
+                    src: files/hdfs-site.xml
+                    dest: /etc/hadoop/
+          - name: Copying core-site.xml file from Controller Node
+            copy:
+                    src: files/core-site.xml
+                    dest: /etc/hadoop/ 
+          - name: Adding dfs.data.dir property
+            shell: |
+                    echo '<configuration>
+                    <property>
+                    <name>dfs.data.dir</name>
+                    <value>{{ dndir }}</value>
+                    </property>
+                    </configuration>' >> /etc/hadoop/hdfs-site.xml
+          - name: Adding fs.default.name property
+            shell: |
+                    echo '<configuration>
+                    <property>
+                    <name>fs.default.name</name>
+                    <value>hdfs://{{ nnip }}:{{ nnport }}</value>
+                    </property>
+                    </configuration>' >> /etc/hadoop/core-site.xml 
+          - name: Checking DataNode process if running already
+            shell: "pidof /usr/java/default/bin/java"
+            register: x
+            failed_when: false
+            ignore_errors: yes
+
+          - name: Killing running previously process                     
+            shell: "kill `pidof /usr/java/default/bin/java`"
+            when: x.rc == 0
+
+          - name: Starting DataNode
+            command: "hadoop-daemon.sh start datanode"
