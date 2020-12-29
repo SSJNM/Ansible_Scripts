@@ -1,0 +1,102 @@
+- hosts: localhost
+  vars:
+          lbport: "8082"
+          webport: "80"
+  tasks:
+          - name: Making a directory for Redhat DVD
+            file:
+                    path: /dvd
+                    state: directory
+          - name: Mounting the Redhat Disks
+            mount:
+                    src: /dev/cdrom
+                    path: /dvd
+                    state: present
+                    fstype: iso9660
+          - name: Configuring yum for Redhat DVD AppStream
+            yum_repository:
+                    name: App1
+                    description: "Disk Software 1"
+                    baseurl: "file:///dvd/AppStream"
+                    gpgcheck: no
+          - name: Configuring yum for Redhat DVD BaseOS
+            yum_repository:
+                    name: App2
+                    description: "Disk Software 2"
+                    baseurl: "file:///dvd/BaseOS"
+                    gpgcheck: no
+          - name: Installing haproxy 
+            package:
+                    name: haproxy
+                    state: present
+          - name: Allowing a port for haproxy as lb
+            firewalld:
+                  port: "{{ lbport }}/tcp"
+                  permanent: true
+                  state: enabled
+          - name: Configuring haproxy as lb
+            template:
+                    src: files/haproxy.cfg.j2
+                    dest: /etc/haproxy/haproxy.cfg
+            notify: Restarting haproxy service
+          - name: Starting Haproxy LoadBalancer
+            systemd:
+                    name: haproxy
+                    state: started
+  handlers:
+          - name: Restarting haproxy service
+            systemd:
+                    name: haproxy
+                    state: restarted
+- hosts: webservers
+  vars:
+          port: "80"
+  tasks:
+  - file:
+          path: /dvd
+          state: directory 
+  - mount:
+          src: /dev/cdrom
+          path: /dvd
+          state: present
+          fstype: iso9660
+  - yum_repository:
+          name: App1
+          description: "Disk Software 1"
+          baseurl: "file:///dvd/AppStream"
+          gpgcheck: no
+  - yum_repository:
+          name: App2
+          description: "Disk Software 2"
+          baseurl: "file:///dvd/AppStream"
+          gpgcheck: no
+  - package:
+          name: httpd
+          state: present
+  - copy:
+          content: |
+                  <html>
+                  The IP address of the webserver is shown below <br>
+                  <pre>
+                  <?php
+                  
+                  print `/usr/sbin/ifconfig`;
+                  ?>
+                  </pre>
+                  </html>
+
+          dest: /var/www/html/index.php
+  - systemd:
+          name: httpd
+          state: started
+          enabled: yes 
+  - firewalld:
+          port: "{{ port }}/tcp"
+          permanent: true
+          state: enabled
+  - systemd:
+          name: firewalld
+          state: started
+          enabled: yes
+
+
